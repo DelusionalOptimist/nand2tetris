@@ -1,0 +1,76 @@
+// This file is part of www.nand2tetris.org
+// and the book "The Elements of Computing Systems"
+// by Nisan and Schocken, MIT Press.
+// File name: projects/05/CPU.hdl
+
+/**
+ * The Hack CPU (Central Processing unit), consisting of an ALU,
+ * two registers named A and D, and a program counter named PC.
+ * The CPU is designed to fetch and execute instructions written in 
+ * the Hack machine language. In particular, functions as follows:
+ * Executes the inputted instruction according to the Hack machine 
+ * language specification. The D and A in the language specification
+ * refer to CPU-resident registers, while M refers to the external
+ * memory location addressed by A, i.e. to Memory[A]. The inM input 
+ * holds the value of this location. If the current instruction needs 
+ * to write a value to M, the value is placed in outM, the address 
+ * of the target location is placed in the addressM output, and the 
+ * writeM control bit is asserted. (When writeM==0, any value may 
+ * appear in outM). The outM and writeM outputs are combinational: 
+ * they are affected instantaneously by the execution of the current 
+ * instruction. The addressM and pc outputs are clocked: although they 
+ * are affected by the execution of the current instruction, they commit 
+ * to their new values only in the next time step. If reset==1 then the 
+ * CPU jumps to address 0 (i.e. pc is set to 0 in next time step) rather 
+ * than to the address resulting from executing the current instruction. 
+ */
+
+CHIP CPU {
+
+    IN  inM[16],         // M value input  (M = contents of RAM[A])
+        instruction[16], // Instruction for execution
+        reset;           // Signals whether to re-start the current
+                         // program (reset==1) or continue executing
+                         // the current program (reset==0).
+
+    OUT outM[16],        // M value output
+        writeM,          // Write to M? 
+        addressM[15],    // Address in data memory (of M)
+        pc[15];          // address of next instruction
+
+    PARTS:
+    //decoding the instruction input. Bits 13, 14, 15 not required to be decoded
+    Mux16(a=false, b=instruction, sel=instruction[15], out[0]=decodedIns0, out[1]=decodedIns1, out[2]=decodedIns2, out[3]=decodedIns3, out[4]=decodedIns4, out[5]=decodedIns5, out[6]=decodedIns6, out[7]=decodedIns7, out[8]=decodedIns8, out[9]=decodedIns9, out[10]=decodedIns10, out[11]=decodedIns11, out[12]=decodedIns12);
+
+    //operating the ALU with decoded comp bits, x=DRegister and y=output of Mux2
+    ALU(x=outDRegister, y=outMux2, zx=decodedIns11, nx=decodedIns10, zy=decodedIns9, ny=decodedIns8, f=decodedIns7, no=decodedIns6, out=outALU, out=outM, zr=outZr, ng=outNg);
+
+    Not(in=instruction[15], out=notOpcode);
+    Mux16(a=outALU, b=instruction, sel=notOpcode, out=outMux1);
+    Or(a=notOpcode, b=decodedIns5, out=loadARegister);
+    ARegister(in=outMux1, load=loadARegister, out=outARegister, out[0..14]=addressM);
+
+    //operating the D register
+    DRegister(in=outALU, load=decodedIns4, out=outDRegister);
+
+    //if d1==1 set load=1 to memory
+    Mux(a=false, b=true, sel=decodedIns3, out=writeM);
+
+    //Deciding the second input of the ALU from the a bit of the instruction
+    Mux16(a=outARegister, b=inM, sel=decodedIns12, out=outMux2);
+
+    //logic for jump
+    DMux8Way(in=true, sel[0]=decodedIns0, sel[1]=decodedIns1, sel[2]=decodedIns2, b=outjbit001, c=outjbit010, d=outjbit011, e=outjbit100, f=outjbit101, g=outjbit110, h=outjbit111);
+    DMux4Way(in=outjbit001, sel[0]=outNg, sel[1]=outZr, a=outGreaterThanZero1);
+    DMux4Way(in=outjbit010, sel[0]=outNg, sel[1]=outZr, c=outEqualZero1);
+    DMux4Way(in=outjbit011, sel[0]=outNg, sel[1]=outZr, a=outGreaterThanZero2, c=outEqualZero2);
+    DMux4Way(in=outjbit100, sel[0]=outNg, sel[1]=outZr, b=outNegative1);
+    DMux4Way(in=outjbit101, sel[0]=outNg, sel[1]=outZr, a=outPositive, b=outNegative2);
+    DMux4Way(in=outjbit110, sel[0]=outNg, sel[1]=outZr, b=outNegative3, c=outEqualZero3);
+    Or8Way(in[0]=outGreaterThanZero1, in[1]=outEqualZero1, in[2]=outGreaterThanZero2, in[3]=outEqualZero2, in[4]=outNegative1, in[5]=outPositive, in[6]=outNegative2, in[7]=outjbit111, out=outOr1);
+    Or(a=outNegative3, b=outEqualZero3, out=outOr2);
+    Or(a=outOr1, b=outOr2, out=outOr3);
+    DMux(in=true, sel=outOr3, a=ALUInc, b=ALULoad);
+    PC(in=outARegister, load=ALULoad, inc=ALUInc, reset=reset, out[0..14]=pc);
+
+}
